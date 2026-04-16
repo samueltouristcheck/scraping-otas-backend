@@ -1,0 +1,29 @@
+[
+  {
+    "internal_code": "SAGRADA_REGULAR_LARGE",
+    "attraction": "Sagrada Familia",
+    "variant": "Regular / Large groups",
+    "source_url": "https://www.getyourguide.es/sagrada-familia-l2699/",
+    "external_product_id": "sagrada-familia-l2699",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "SAGRADA_SEMI_SMALL",
+    "attraction": "Sagrada Familia",
+    "variant": "Semi / Small groups",
+    "source_url": "https://www.getyourguide.es/barcelona-l45/barcelona-sagrada-familia-small-group-guided-tour-t560822/",
+    "external_product_id": "barcelona-sagrada-familia-small-group-guided-tour-t560822",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "PARK_GUELL_REGULAR",
+    "attraction": "Park Güell",
+    "variant": "Regular tours",
+    "source_url": "https://www.getyourguide.es/park-guell-l3032/",
+    "external_product_id": "park-guell-l3032",
+    "city": "Barcelona",
+    "market": "ES"
+  }
+]

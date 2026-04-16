@@ -1,0 +1,14 @@
+# Copia este archivo a .env.supabase.local y rellena la contraseña.
+# El archivo .env.supabase.local NO se sube a Git.
+#
+# En Supabase: Settings → Database → URI (Direct, puerto 5432).
+# Cambia postgresql:// por postgresql+asyncpg:// y añade ?ssl=require
+#
+# Si tu contraseña tiene caracteres especiales (@, #, etc.), codifícala en la URL
+# o cámbiala en Supabase por una más simple para desarrollo.
+#
+# IPv4 / Windows: el host "db....supabase.co" directo suele ser solo IPv6. Si ves
+# getaddrinfo failed (11001), usa en Supabase "Session pooler" (puerto 5432) y copia
+# esa URI, con postgresql+asyncpg:// y ?ssl=require. Ver documentación Supabase.
+#
+DATABASE_URL=postgresql+asyncpg://postgres:TU_CONTRASEÑA@db.TU_PROJECT_REF.supabase.co:5432/postgres?ssl=require

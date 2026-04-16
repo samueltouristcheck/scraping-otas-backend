@@ -1,0 +1,62 @@
+[
+  {
+    "internal_code": "SAGRADA_REGULAR_LARGE",
+    "attraction": "Sagrada Familia",
+    "variant": "Regular / Large groups",
+    "ota_name": "getyourguide",
+    "external_product_id": "sagrada-familia-l2699",
+    "source_url": "https://www.getyourguide.es/sagrada-familia-l2699/",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "SAGRADA_REGULAR_LARGE",
+    "attraction": "Sagrada Familia",
+    "variant": "Regular / Large groups",
+    "ota_name": "viator",
+    "external_product_id": "sagrada-viator-listing-d562",
+    "source_url": "https://www.viator.com/Barcelona-attractions/Sagrada-Familia/d562-a845",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "SAGRADA_SEMI_SMALL",
+    "attraction": "Sagrada Familia",
+    "variant": "Semi / Small groups",
+    "ota_name": "getyourguide",
+    "external_product_id": "barcelona-sagrada-familia-small-group-guided-tour-t560822",
+    "source_url": "https://www.getyourguide.es/barcelona-l45/barcelona-sagrada-familia-small-group-guided-tour-t560822/",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "SAGRADA_SEMI_SMALL",
+    "attraction": "Sagrada Familia",
+    "variant": "Semi / Small groups",
+    "ota_name": "viator",
+    "external_product_id": "viator-sagrada-small-group-d562-16168P23",
+    "source_url": "https://www.viator.com/tours/Barcelona/Real-skip-the-line-experience-Sagrada-familia-in-a-small-group/d562-16168P23",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "PARK_GUELL_REGULAR",
+    "attraction": "Park Güell",
+    "variant": "Regular tours",
+    "ota_name": "getyourguide",
+    "external_product_id": "park-guell-l3032",
+    "source_url": "https://www.getyourguide.es/park-guell-l3032/",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "PARK_GUELL_REGULAR",
+    "attraction": "Park Güell",
+    "variant": "Regular tours",
+    "ota_name": "viator",
+    "external_product_id": "park-guell-viator-listing-d562",
+    "source_url": "https://www.viator.com/Barcelona-attractions/Park-Guell/d562-a831",
+    "city": "Barcelona",
+    "market": "ES"
+  }
+]

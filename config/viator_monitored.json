@@ -1,0 +1,29 @@
+[
+  {
+    "internal_code": "SAGRADA_REGULAR_LARGE",
+    "attraction": "Sagrada Familia",
+    "variant": "Regular / Large groups",
+    "source_url": "https://www.viator.com/Barcelona-attractions/Sagrada-Familia/d562-a845",
+    "external_product_id": "sagrada-viator-listing-d562",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "SAGRADA_SEMI_SMALL",
+    "attraction": "Sagrada Familia",
+    "variant": "Semi / Small groups",
+    "source_url": "https://www.viator.com/tours/Barcelona/Real-skip-the-line-experience-Sagrada-familia-in-a-small-group/d562-16168P23",
+    "external_product_id": "viator-sagrada-small-group-d562-16168P23",
+    "city": "Barcelona",
+    "market": "ES"
+  },
+  {
+    "internal_code": "PARK_GUELL_REGULAR",
+    "attraction": "Park Güell",
+    "variant": "Regular tours",
+    "source_url": "https://www.viator.com/Barcelona-attractions/Park-Guell/d562-a831",
+    "external_product_id": "park-guell-viator-listing-d562",
+    "city": "Barcelona",
+    "market": "ES"
+  }
+]

@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Secretos Supabase (copia desde supabase-env.example)
+.env.supabase.local
+
+# Local tooling
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build and distribution
+build/
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and coverage
+*.log
+.coverage
+htmlcov/
