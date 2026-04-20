@@ -27,6 +27,50 @@ from database.repositories import MarketReadRepository
 router = APIRouter(tags=["market"])
 
 
+def _payload_opt_str(raw: dict | None, key: str) -> str | None:
+    """Evita 422/500 en serialización si ``raw_payload`` trae tipos inesperados (p. ej. int en popularity_label)."""
+    if not raw:
+        return None
+    v = raw.get(key)
+    if v is None:
+        return None
+    if isinstance(v, str):
+        s = v.strip()
+        return s or None
+    if isinstance(v, (dict, list)):
+        return None
+    return str(v)
+
+
+def _payload_opt_int(raw: dict | None, key: str) -> int | None:
+    if not raw:
+        return None
+    v = raw.get(key)
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        if v != v:
+            return None
+        i = int(v)
+        return i if float(i) == v else None
+    if isinstance(v, str):
+        t = v.strip()
+        if not t:
+            return None
+        try:
+            return int(t)
+        except ValueError:
+            try:
+                return int(float(t))
+            except ValueError:
+                return None
+    return None
+
+
 async def _source_name_map(repository: MarketReadRepository, source_ids: list[UUID]) -> dict[UUID, str]:
     return await repository.source_names_by_ids(set(source_ids))
 
@@ -121,13 +165,13 @@ async def get_latest_prices(
                 slot_time=row.slot_time,
                 language_code=row.language_code,
                 option_name=row.option_name,
-                detail_tour_name=rp.get("detail_tour_name"),
-                detail_page_url=rp.get("detail_page_url"),
+                detail_tour_name=_payload_opt_str(rp, "detail_tour_name"),
+                detail_page_url=_payload_opt_str(rp, "detail_page_url"),
                 currency_code=row.currency_code,
                 list_price=row.list_price,
                 final_price=row.final_price,
-                popularity_count_yesterday=rp.get("popularity_count_yesterday"),
-                popularity_label=rp.get("popularity_label"),
+                popularity_count_yesterday=_payload_opt_int(rp, "popularity_count_yesterday"),
+                popularity_label=_payload_opt_str(rp, "popularity_label"),
                 observed_at=row.observed_at,
             )
         )
@@ -185,7 +229,7 @@ async def get_latest_availability(
                 slot_time=row.slot_time,
                 language_code=row.language_code,
                 option_name=row.option_name,
-                detail_tour_name=(row.raw_payload or {}).get("detail_tour_name"),
+                detail_tour_name=_payload_opt_str(row.raw_payload, "detail_tour_name"),
                 is_available=row.is_available,
                 seats_available=row.seats_available,
                 observed_at=row.observed_at,
@@ -412,15 +456,17 @@ async def get_availability_day_detail(
                 seats_available=row.seats_available,
                 ota_name=source_cache.get(row.ota_source_id),
                 option_name=row.option_name,
-                detail_tour_name=(row.raw_payload or {}).get("detail_tour_name"),
+                detail_tour_name=_payload_opt_str(row.raw_payload, "detail_tour_name"),
                 language_code=row.language_code,
                 final_price=price_row.final_price if price_row is not None else None,
                 list_price=price_row.list_price if price_row is not None else None,
                 currency_code=price_row.currency_code if price_row is not None else None,
-                popularity_count_yesterday=(price_row.raw_payload or {}).get("popularity_count_yesterday")
+                popularity_count_yesterday=_payload_opt_int(price_row.raw_payload, "popularity_count_yesterday")
                 if price_row is not None
                 else None,
-                popularity_label=(price_row.raw_payload or {}).get("popularity_label") if price_row is not None else None,
+                popularity_label=_payload_opt_str(price_row.raw_payload, "popularity_label")
+                if price_row is not None
+                else None,
                 observed_at=row.observed_at,
             )
         )
@@ -442,10 +488,12 @@ async def get_price_timeseries(
     horizon_days: int | None = Query(default=None, ge=0),
     from_date: date | None = Query(default=None),
     to_date: date | None = Query(default=None),
-    limit: int = Query(default=50_000, ge=1, le=100_000),
+    limit: int = Query(default=50_000, ge=1, le=500_000),
     session: AsyncSession = Depends(db_session_dependency),
 ) -> PriceTimeseriesResponse:
     repository = MarketReadRepository(session)
+    if from_date is not None and to_date is not None and from_date > to_date:
+        from_date, to_date = to_date, from_date
     rows = await repository.price_timeseries(
         tour_code=tour_code,
         horizon_days=horizon_days,
@@ -468,13 +516,13 @@ async def get_price_timeseries(
                 slot_time=row.slot_time,
                 language_code=row.language_code,
                 option_name=row.option_name,
-                detail_tour_name=rp.get("detail_tour_name"),
-                detail_page_url=rp.get("detail_page_url"),
+                detail_tour_name=_payload_opt_str(rp, "detail_tour_name"),
+                detail_page_url=_payload_opt_str(rp, "detail_page_url"),
                 currency_code=row.currency_code,
                 list_price=row.list_price,
                 final_price=row.final_price,
-                popularity_count_yesterday=rp.get("popularity_count_yesterday"),
-                popularity_label=rp.get("popularity_label"),
+                popularity_count_yesterday=_payload_opt_int(rp, "popularity_count_yesterday"),
+                popularity_label=_payload_opt_str(rp, "popularity_label"),
                 observed_at=row.observed_at,
             )
         )

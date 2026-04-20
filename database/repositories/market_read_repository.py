@@ -363,7 +363,7 @@ class MarketReadRepository:
             select(price_alias)
             .where(ranked_rows.c.row_num == 1)
             .order_by(price_alias.observed_at.asc(), price_alias.target_date.asc())
-            .limit(min(limit, 100_000))
+            .limit(min(limit, 500_000))
         )
         rows = await self.session.scalars(rows_stmt)
         return list(rows.all())
