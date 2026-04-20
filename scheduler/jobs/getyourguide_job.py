@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from core.config import get_settings
+from core.scrape_progress import ManualScrapeProgress
 from core.services import persist_scrape_result, upsert_tour_and_source
 from database.session import session_factory
 from models.dto.monitoring import MonitoredTourSource
@@ -33,7 +34,7 @@ def load_monitored_sources() -> list[MonitoredTourSource]:
     return sources
 
 
-async def run_getyourguide_cycle() -> None:
+async def run_getyourguide_cycle(*, progress: ManualScrapeProgress | None = None) -> None:
     settings = get_settings()
     monitored_sources = load_monitored_sources()
     if not monitored_sources:
@@ -74,6 +75,7 @@ async def run_getyourguide_cycle() -> None:
             raw_excerpt: str | None = None
 
             for hz in horizons:
+                horizon_result = None
                 try:
                     horizon_result = await scraper.scrape_one_horizon(
                         str(source_cfg.source_url),
@@ -92,42 +94,45 @@ async def run_getyourguide_cycle() -> None:
                             "error": str(exc),
                         },
                     )
-                    continue
+                else:
+                    # Carry forward shared metadata across horizons
+                    if horizon_result.product_name and product_name is None:
+                        product_name = horizon_result.product_name
+                    if horizon_result.raw_excerpt and raw_excerpt is None:
+                        raw_excerpt = horizon_result.raw_excerpt
 
-                # Carry forward shared metadata across horizons
-                if horizon_result.product_name and product_name is None:
-                    product_name = horizon_result.product_name
-                if horizon_result.raw_excerpt and raw_excerpt is None:
-                    raw_excerpt = horizon_result.raw_excerpt
+                    # Persist this horizon's data immediately
+                    if horizon_result.prices or horizon_result.availability:
+                        async with session_factory() as session:
+                            await persist_scrape_result(
+                                session=session,
+                                source=ota_source,
+                                scrape_result=horizon_result,
+                            )
 
-                # Persist this horizon's data immediately
-                if horizon_result.prices or horizon_result.availability:
-                    async with session_factory() as session:
-                        await persist_scrape_result(
-                            session=session,
-                            source=ota_source,
-                            scrape_result=horizon_result,
-                        )
+                    avail_with_slot = sum(1 for r in horizon_result.availability if r.slot_time is not None)
+                    prices_with_slot = sum(1 for r in horizon_result.prices if r.slot_time is not None)
+                    total_avail_with_slot += avail_with_slot
+                    total_prices_with_slot += prices_with_slot
+                    total_avail += len(horizon_result.availability)
+                    total_prices += len(horizon_result.prices)
 
-                avail_with_slot = sum(1 for r in horizon_result.availability if r.slot_time is not None)
-                prices_with_slot = sum(1 for r in horizon_result.prices if r.slot_time is not None)
-                total_avail_with_slot += avail_with_slot
-                total_prices_with_slot += prices_with_slot
-                total_avail += len(horizon_result.availability)
-                total_prices += len(horizon_result.prices)
-
-                logger.info(
-                    "horizon_persisted",
-                    extra={
-                        "ota": "getyourguide",
-                        "internal_code": source_cfg.internal_code,
-                        "date": hz.target_date.isoformat(),
-                        "availability": len(horizon_result.availability),
-                        "availability_with_slot": avail_with_slot,
-                        "prices": len(horizon_result.prices),
-                        "prices_with_slot": prices_with_slot,
-                    },
-                )
+                    logger.info(
+                        "horizon_persisted",
+                        extra={
+                            "ota": "getyourguide",
+                            "internal_code": source_cfg.internal_code,
+                            "date": hz.target_date.isoformat(),
+                            "availability": len(horizon_result.availability),
+                            "availability_with_slot": avail_with_slot,
+                            "prices": len(horizon_result.prices),
+                            "prices_with_slot": prices_with_slot,
+                        },
+                    )
+                finally:
+                    if progress is not None:
+                        label = f"{source_cfg.internal_code} · {hz.target_date.isoformat()}"
+                        await progress.advance("GetYourGuide", label)
 
             logger.info(
                 "scrape_completed",
