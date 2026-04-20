@@ -997,13 +997,29 @@ class GetYourGuideScraper(PlaywrightScraperBase, OtaScraper):
     # ---------------------------------------------------------------- #
     # Listing page – collect detail URLs                                #
     # ---------------------------------------------------------------- #
+    @staticmethod
+    def _listing_filter_phrases(listing_url: str) -> list[str] | None:
+        """Normalized substrings a tour link must match on listing pages.
+
+        Park Güell listings often use Catalan \"parc\" / Spanish \"parque\" in
+        card copy and URL slugs while the hub slug is ``park-guell-l…``.
+        Without aliases those ``-t…`` links were incorrectly dropped.
+        """
+        primary = GetYourGuideScraper._expected_phrase(listing_url.split("?")[0])
+        if not primary:
+            return None
+        phrases: set[str] = {primary}
+        if primary == "park guell":
+            phrases.update(("parc guell", "parque guell"))
+        return list(phrases)
+
     async def _collect_detail_urls(
         self,
         page: Page,
         *,
         base_url: str,
     ) -> list[str]:
-        expected = self._expected_phrase(base_url.split("?")[0])
+        phrases = self._listing_filter_phrases(base_url)
 
         raw = await page.eval_on_selector_all(
             "a[href]",
@@ -1030,12 +1046,14 @@ class GetYourGuideScraper(PlaywrightScraperBase, OtaScraper):
             if absolute in seen:
                 continue
 
-            if expected:
+            if phrases:
                 norm_text = self._norm(str(item.get("text", "")))
                 norm_path = self._norm(
                     path.replace("-", " ").replace("/", " "),
                 )
-                if expected not in norm_text and expected not in norm_path:
+                if not any(
+                    p in norm_text or p in norm_path for p in phrases
+                ):
                     continue
 
             seen.add(absolute)

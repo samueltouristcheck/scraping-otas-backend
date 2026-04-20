@@ -177,6 +177,7 @@ class ViatorScraper(PlaywrightScraperBase, OtaScraper):
             await self._scroll_to_load(page)
 
             detail_urls = await self._collect_detail_urls(page, base_url=source_url)
+            detail_urls = self._resolve_detail_urls(source_url, detail_urls)
             self.logger.info("detail_urls", extra={"n": len(detail_urls), "sample": detail_urls[:5]})
 
             options: list[dict] = []
@@ -264,6 +265,7 @@ class ViatorScraper(PlaywrightScraperBase, OtaScraper):
                     await self._scroll_to_load(page)
 
                     detail_urls = await self._collect_detail_urls(page, base_url=source_url)
+                    detail_urls = self._resolve_detail_urls(source_url, detail_urls)
                     self.logger.info(
                         "detail_urls",
                         extra={"n": len(detail_urls), "sample": detail_urls[:5]},
@@ -978,6 +980,17 @@ class ViatorScraper(PlaywrightScraperBase, OtaScraper):
 
         self.logger.info("collected_detail_urls", extra={"count": len(urls), "urls": urls[:5]})
         return urls
+
+    def _resolve_detail_urls(self, source_url: str, collected: list[str]) -> list[str]:
+        """Si la URL monitorizada ya es una ficha /tours/…/d562-XXX, no hay enlaces en grid → usarla sola."""
+        if collected:
+            return collected
+        p = urlsplit(source_url)
+        if "/tours/" in p.path and _DETAIL_SLUG_RE.search(p.path):
+            clean = urlunsplit((p.scheme, p.netloc, p.path.rstrip("/"), "", ""))
+            self.logger.info("detail_urls_fallback_single_tour", extra={"url": clean})
+            return [clean]
+        return []
 
     # ---------------------------------------------------------------- #
     # Result-point builders                                             #

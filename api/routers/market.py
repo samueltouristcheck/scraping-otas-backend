@@ -442,7 +442,7 @@ async def get_price_timeseries(
     horizon_days: int | None = Query(default=None, ge=0),
     from_date: date | None = Query(default=None),
     to_date: date | None = Query(default=None),
-    limit: int = Query(default=5000, ge=1, le=20000),
+    limit: int = Query(default=50_000, ge=1, le=100_000),
     session: AsyncSession = Depends(db_session_dependency),
 ) -> PriceTimeseriesResponse:
     repository = MarketReadRepository(session)

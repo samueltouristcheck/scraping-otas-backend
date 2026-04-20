@@ -39,6 +39,8 @@ class Settings(BaseSettings):
 
     viator_monitored_tours_json: str = Field(default="[]", alias="VIATOR_MONITORED_TOURS_JSON")
     viator_scheduler_cron: str = Field(default="0 */2 * * *", alias="VIATOR_SCHEDULER_CRON")
+    # True = navegador sin UI (Docker/Render). False = ventana visible; a veces evita Cloudflare en local.
+    viator_headless: bool = Field(default=False, alias="VIATOR_HEADLESS")
 
     # Mismo valor que VITE_SCRAPING_TRIGGER_TOKEN en el frontend (cabecera X-Scraping-Token). Vacío = endpoint desactivado.
     scraping_trigger_secret: str | None = Field(default=None, alias="SCRAPING_TRIGGER_SECRET")

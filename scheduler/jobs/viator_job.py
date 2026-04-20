@@ -1,7 +1,6 @@
 import json
 import logging
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
 
 from pydantic import ValidationError
 
@@ -9,8 +8,8 @@ from core.config import get_settings
 from core.services import persist_scrape_result, upsert_tour_and_source
 from database.session import session_factory
 from models.dto.monitoring import MonitoredTourSource
-from models.dto.scraping import ScrapedAvailabilityPoint, ScrapedPricePoint, ScrapeResult
-from scraping.viator.listing_scraper import ViatorListingScraper
+from scraping.getyourguide.scraper import GetYourGuideScraper
+from scraping.viator.scraper import ViatorScraper
 
 logger = logging.getLogger("scheduler.viator")
 
@@ -35,13 +34,15 @@ def load_monitored_sources() -> list[MonitoredTourSource]:
     return sources
 
 
-def _parse_price(raw: str | None) -> Decimal | None:
-    if not raw:
-        return None
-    try:
-        return Decimal(str(raw).replace(",", ".").strip())
-    except InvalidOperation:
-        return None
+def _viator_horizons(settings) -> list:
+    """Misma ventana de fechas de visita que GetYourGuide (GYG_* en .env)."""
+    if settings.gyg_future_only:
+        return GetYourGuideScraper.future_visit_horizons(
+            start_offset_days=max(0, min(180, settings.gyg_forward_start_offset_days)),
+            window_days=max(1, min(181, settings.gyg_forward_window_days)),
+        )
+    daily = max(0, min(180, settings.gyg_daily_horizon_days))
+    return ViatorScraper.default_horizons(daily_window_days=daily)
 
 
 async def run_viator_cycle() -> None:
@@ -51,21 +52,22 @@ async def run_viator_cycle() -> None:
         logger.warning("no_monitored_viator_sources_configured")
         return
 
-    # Viator listing scraper must run non-headless (Cloudflare blocks headless)
-    scraper = ViatorListingScraper(headless=False)
+    scraper = ViatorScraper(headless=settings.viator_headless)
+    horizons = _viator_horizons(settings)
     captured_at = datetime.now(timezone.utc)
-    # Misma referencia calendario que /prices/latest (datetime.now(UTC).date()) para no quedar fuera de la ventana.
-    today = datetime.now(timezone.utc).date()
 
     try:
         for source_cfg in monitored_sources:
-            listing_url = str(source_cfg.source_url)
             logger.info(
                 "scrape_started",
-                extra={"ota": "viator", "internal_code": source_cfg.internal_code, "url": listing_url},
+                extra={
+                    "ota": "viator",
+                    "internal_code": source_cfg.internal_code,
+                    "url": str(source_cfg.source_url),
+                    "horizons": len(horizons),
+                },
             )
 
-            # Upsert tour + source in DB
             async with session_factory() as session:
                 ota_source = await upsert_tour_and_source(
                     session=session,
@@ -73,78 +75,73 @@ async def run_viator_cycle() -> None:
                     ota_name="viator",
                 )
 
-            # Scrape the listing page (first page only — no infinite scroll needed)
-            try:
-                cards = await scraper.scrape_listing(
-                    listing_url,
-                    max_scroll_rounds=2,    # one pass to load the page, one to confirm no more
-                    stale_rounds_limit=1,   # stop as soon as first round is stale
-                )
-                if not cards and "/tours/" in listing_url:
-                    cards = await scraper.scrape_product_page_snapshot(listing_url)
-            except Exception as exc:
-                logger.error(
-                    "listing_scrape_failed",
-                    extra={"ota": "viator", "internal_code": source_cfg.internal_code, "error": str(exc)},
-                )
-                continue
+            total_avail_with_slot = 0
+            total_prices_with_slot = 0
+            total_avail = 0
+            total_prices = 0
+            product_name: str | None = None
+            raw_excerpt: str | None = None
 
-            # Map each card to price + availability points (horizon_days=0 = current snapshot)
-            prices: list[ScrapedPricePoint] = []
-            availability: list[ScrapedAvailabilityPoint] = []
-
-            for card in cards:
-                price_val = _parse_price(card.get("price_eur"))
-                if price_val is None:
-                    continue  # skip cards without a parseable price
-
-                option_name = (card.get("name") or "")[:500]
-
-                prices.append(
-                    ScrapedPricePoint(
-                        target_date=today,
-                        horizon_days=0,
-                        observed_at=captured_at,
-                        option_name=option_name,
-                        currency_code="EUR",
-                        list_price=price_val,
-                        final_price=price_val,
+            for hz in horizons:
+                try:
+                    horizon_result = await scraper.scrape_one_horizon(
+                        str(source_cfg.source_url),
+                        hz,
+                        captured_at=captured_at,
+                        product_name=product_name,
+                        raw_excerpt=raw_excerpt,
                     )
-                )
-                availability.append(
-                    ScrapedAvailabilityPoint(
-                        target_date=today,
-                        horizon_days=0,
-                        observed_at=captured_at,
-                        option_name=option_name,
-                        is_available=True,
+                except Exception as exc:
+                    logger.warning(
+                        "horizon_scrape_failed",
+                        extra={
+                            "ota": "viator",
+                            "internal_code": source_cfg.internal_code,
+                            "date": hz.target_date.isoformat(),
+                            "error": str(exc),
+                        },
                     )
+                    continue
+
+                if horizon_result.product_name and product_name is None:
+                    product_name = horizon_result.product_name
+                if horizon_result.raw_excerpt and raw_excerpt is None:
+                    raw_excerpt = horizon_result.raw_excerpt
+
+                if horizon_result.prices or horizon_result.availability:
+                    async with session_factory() as session:
+                        await persist_scrape_result(
+                            session=session,
+                            source=ota_source,
+                            scrape_result=horizon_result,
+                        )
+
+                avail_with_slot = sum(1 for r in horizon_result.availability if r.slot_time is not None)
+                prices_with_slot = sum(1 for r in horizon_result.prices if r.slot_time is not None)
+                total_avail_with_slot += avail_with_slot
+                total_prices_with_slot += prices_with_slot
+                total_avail += len(horizon_result.availability)
+                total_prices += len(horizon_result.prices)
+
+                logger.info(
+                    "horizon_persisted",
+                    extra={
+                        "ota": "viator",
+                        "internal_code": source_cfg.internal_code,
+                        "date": hz.target_date.isoformat(),
+                        "horizon_days": hz.horizon_days,
+                        "availability": len(horizon_result.availability),
+                        "prices": len(horizon_result.prices),
+                    },
                 )
-
-            scrape_result = ScrapeResult(
-                ota_name="viator",
-                source_url=source_cfg.source_url,
-                product_name=source_cfg.attraction,
-                captured_at=captured_at,
-                prices=prices,
-                availability=availability,
-            )
-
-            if prices or availability:
-                async with session_factory() as session:
-                    await persist_scrape_result(
-                        session=session,
-                        source=ota_source,
-                        scrape_result=scrape_result,
-                    )
 
             logger.info(
                 "scrape_completed",
                 extra={
                     "ota": "viator",
                     "internal_code": source_cfg.internal_code,
-                    "cards_found": len(cards),
-                    "prices_persisted": len(prices),
+                    "total_prices": total_prices,
+                    "total_availability": total_avail,
                 },
             )
 

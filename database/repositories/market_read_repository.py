@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from uuid import UUID
@@ -13,6 +14,26 @@ from database.models import Availability, OtaSource, Price, Tour
 # El scraper de Viator (listado) no rellena option_name/detail con el nombre de la atracción como GYG;
 # sin esto, title_contains elimina todas las filas viator. Los listados viator siguen acotados por tour_id.
 _VIATOR_OTA = "viator"
+
+
+def _accent_fold_lower(s: str) -> str:
+    """Igual que el scraper GYG ``_norm`` sin colapsar espacios: ü → u para poder hacer ``contains`` en SQL."""
+    n = unicodedata.normalize("NFKD", s.strip())
+    return "".join(c for c in n if not unicodedata.combining(c)).lower()
+
+
+def _title_contains_search_variants(attraction: str) -> list[str]:
+    """``Tour.attraction`` suele llevar tildes; los textos scrapeados a menudo van sin ellas."""
+    raw = attraction.strip()
+    if not raw:
+        return []
+    lower_only = raw.lower()
+    folded = _accent_fold_lower(raw)
+    out: list[str] = []
+    for v in {lower_only, folded}:
+        if v and v not in out:
+            out.append(v)
+    return out
 
 
 class MarketReadRepository:
@@ -83,22 +104,22 @@ class MarketReadRepository:
         if ota_name is not None:
             filters.append(OtaSource.ota_name == ota_name)
         if title_contains:
-            normalized_contains = title_contains.strip().lower()
-            if normalized_contains:
+            variants = _title_contains_search_variants(title_contains)
+            if variants:
                 # Match against option_name OR the parent GYG product page title
                 # stored in raw_payload->>'detail_tour_name'. This lets callers
                 # find all option cards that belong to a specific GYG listing
                 # even when the card names differ from the listing title.
                 # Viator: las tarjetas del listado no suelen repetir el nombre de la atracción.
-                filters.append(
-                    or_(
-                        OtaSource.ota_name == _VIATOR_OTA,
-                        func.lower(func.coalesce(Price.option_name, "")).contains(normalized_contains),
-                        func.lower(func.coalesce(Price.raw_payload["detail_tour_name"].astext, "")).contains(
-                            normalized_contains
-                        ),
+                text_conds = []
+                for v in variants:
+                    text_conds.append(
+                        func.lower(func.coalesce(Price.option_name, "")).contains(v),
                     )
-                )
+                    text_conds.append(
+                        func.lower(func.coalesce(Price.raw_payload["detail_tour_name"].astext, "")).contains(v),
+                    )
+                filters.append(or_(OtaSource.ota_name == _VIATOR_OTA, *text_conds))
 
         ranked_rows = (
             select(
@@ -177,17 +198,19 @@ class MarketReadRepository:
         if ota_name is not None:
             filters.append(OtaSource.ota_name == ota_name)
         if title_contains:
-            normalized_contains = title_contains.strip().lower()
-            if normalized_contains:
-                filters.append(
-                    or_(
-                        OtaSource.ota_name == _VIATOR_OTA,
-                        func.lower(func.coalesce(Availability.option_name, "")).contains(normalized_contains),
-                        func.lower(func.coalesce(Availability.raw_payload["detail_tour_name"].astext, "")).contains(
-                            normalized_contains
-                        ),
+            variants = _title_contains_search_variants(title_contains)
+            if variants:
+                text_conds = []
+                for v in variants:
+                    text_conds.append(
+                        func.lower(func.coalesce(Availability.option_name, "")).contains(v),
                     )
-                )
+                    text_conds.append(
+                        func.lower(
+                            func.coalesce(Availability.raw_payload["detail_tour_name"].astext, ""),
+                        ).contains(v),
+                    )
+                filters.append(or_(OtaSource.ota_name == _VIATOR_OTA, *text_conds))
 
         ranked_rows = (
             select(
@@ -286,26 +309,62 @@ class MarketReadRepository:
         horizon_days: int | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
-        limit: int = 5000,
+        limit: int = 50_000,
     ) -> list[Price]:
-        stmt = (
-            select(Price)
+        """Histórico de precios con deduplicación por fila lógica (última observación gana).
+
+        Antes se hacía ``order_by(...).limit(N)`` sobre filas crudas: con muchas filas GYG
+        las últimas 5000 eran casi todas GetYourGuide y **desaparecía Viator** en la tendencia.
+        """
+        filters: list = [Tour.internal_code == tour_code]
+        if horizon_days is not None:
+            filters.append(Price.horizon_days == horizon_days)
+
+        if from_date is not None and to_date is not None:
+            filters.append(
+                or_(
+                    and_(Price.target_date >= from_date, Price.target_date <= to_date),
+                    and_(
+                        func.date(Price.observed_at) >= from_date,
+                        func.date(Price.observed_at) <= to_date,
+                    ),
+                )
+            )
+        else:
+            if from_date is not None:
+                filters.append(Price.target_date >= from_date)
+            if to_date is not None:
+                filters.append(Price.target_date <= to_date)
+
+        ranked_rows = (
+            select(
+                Price,
+                func.row_number()
+                .over(
+                    partition_by=(
+                        Price.ota_source_id,
+                        Price.target_date,
+                        Price.horizon_days,
+                        Price.option_name,
+                        Price.language_code,
+                        Price.slot_time,
+                    ),
+                    order_by=Price.observed_at.desc(),
+                )
+                .label("row_num"),
+            )
             .join(OtaSource, OtaSource.id == Price.ota_source_id)
             .join(Tour, Tour.id == OtaSource.tour_id)
-            .where(Tour.internal_code == tour_code)
+            .where(*filters)
+        ).subquery()
+
+        price_alias = aliased(Price, ranked_rows)
+        rows_stmt = (
+            select(price_alias)
+            .where(ranked_rows.c.row_num == 1)
+            .order_by(price_alias.observed_at.asc(), price_alias.target_date.asc())
+            .limit(min(limit, 100_000))
         )
-
-        if horizon_days is not None:
-            stmt = stmt.where(Price.horizon_days == horizon_days)
-        # Rango por fecha de visita (target_date), no por momento del scrape — coherente con calendario y tendencia.
-        if from_date is not None:
-            stmt = stmt.where(Price.target_date >= from_date)
-        if to_date is not None:
-            stmt = stmt.where(Price.target_date <= to_date)
-
-        latest_window = stmt.order_by(Price.observed_at.desc(), Price.target_date.desc()).limit(limit).subquery()
-        latest_price = aliased(Price, latest_window)
-        rows_stmt = select(latest_price).order_by(latest_price.observed_at.asc(), latest_price.target_date.asc())
         rows = await self.session.scalars(rows_stmt)
         return list(rows.all())
 

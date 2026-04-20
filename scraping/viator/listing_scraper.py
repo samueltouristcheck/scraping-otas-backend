@@ -75,6 +75,29 @@ class ViatorListingScraper(PlaywrightScraperBase):
     () => {
         const cards = [];
 
+        function normalizeText(s) {
+            return (s || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+
+        /** Viator suele mostrar "€ 29", "29 €", "29,99 €", "EUR 29", "From €29"... */
+        function extractEurPrice(fullText) {
+            const t = normalizeText(fullText);
+            let m = t.match(/\u20AC\s*([0-9]+(?:[.,][0-9]{1,2})?)/);
+            if (m) return m[1];
+            m = t.match(/([0-9]+(?:[.,][0-9]{1,2})?)\s*\u20AC\b/);
+            if (m) return m[1];
+            m = t.match(/\bEUR\s*([0-9]+(?:[.,][0-9]{1,2})?)\b/i);
+            if (m) return m[1];
+            m = t.match(/\b(?:from|desde|da)\s*\u20AC\s*([0-9]+(?:[.,][0-9]{1,2})?)\b/i);
+            if (m) return m[1];
+            return null;
+        }
+
+        function looksLikeEurListing(fullText) {
+            const t = fullText || '';
+            return /\u20AC/.test(t) || /\bEUR\s*[0-9]/i.test(t) || /[0-9]\s*\u20AC/.test(t);
+        }
+
         // Viator wraps each result in an <article> or a classed container
         const candidates = [
             ...document.querySelectorAll('article'),
@@ -94,9 +117,8 @@ class ViatorListingScraper(PlaywrightScraperBase):
         });
 
         for (const el of unique) {
-            // Must contain a price (\u20AC = €)
-            const fullText = el.innerText || '';
-            if (!/\u20AC/.test(fullText)) continue;
+            const fullTextRaw = el.innerText || '';
+            if (!looksLikeEurListing(fullTextRaw)) continue;
 
             // Tour name: first heading or anchor
             let name = '';
@@ -108,9 +130,8 @@ class ViatorListingScraper(PlaywrightScraperBase):
             }
             if (!name || name.length < 5) continue;
 
-            // Price — first \u20AC value in the card
-            const priceMatch = fullText.match(/\u20AC\s*([0-9]+(?:[.,][0-9]{1,2})?)/);
-            const price = priceMatch ? priceMatch[1] : null;
+            const price = extractEurPrice(fullTextRaw);
+            if (!price) continue;
 
             // Rating
             const ratingEl = el.querySelector('[class*="rating"], [class*="Rating"], [aria-label*="rating"], [aria-label*="stars"]');
@@ -122,12 +143,12 @@ class ViatorListingScraper(PlaywrightScraperBase):
 
             // Review count — first (NNN) pattern
             let reviews = null;
-            const reviewMatch = fullText.match(/\(([0-9,]+)\)/);
+            const reviewMatch = fullTextRaw.match(/\(([0-9,]+)\)/);
             if (reviewMatch) reviews = reviewMatch[1].replace(/,/g, '');
 
             // Duration
             let duration = null;
-            const durMatch = fullText.match(/([0-9]+(?:\.[0-9]+)?\s*(?:hour|hr|minute|min|day)s?(?:\s*[0-9]+\s*(?:minute|min)s?)?)/i);
+            const durMatch = fullTextRaw.match(/([0-9]+(?:\.[0-9]+)?\s*(?:hour|hr|minute|min|day)s?(?:\s*[0-9]+\s*(?:minute|min)s?)?)/i);
             if (durMatch) duration = durMatch[1].trim();
 
             // Badges — skip noise words
